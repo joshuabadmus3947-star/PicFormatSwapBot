@@ -8,7 +8,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
 
-from convert import convert_image, get_format_keyboard, INPUT_IMG, OUTPUT_IMG
+from convert import convert_image, get_format_keyboard
 
 # Load environment variables
 load_dotenv()
@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN environment variable is required!")
+
+BOT_NAME = os.getenv("BOT_NAME", "PicFormatSwapBot")
+BOT_USERNAME = os.getenv("BOT_USERNAME", "@PicFormatSwapBot")
 
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
@@ -36,13 +39,14 @@ class ConversionState(StatesGroup):
 async def start_command(message: types.Message):
     """Handler for /start command"""
     welcome_text = (
-        "🎨 Welcome to PicFormatSwapBot!\n\n"
+        f"🎨 Welcome to {BOT_NAME}!\n\n"
         "I can convert your images between different formats.\n\n"
         "📌 How to use:\n"
         "1️⃣ Send /convert to start the conversion process\n"
         "2️⃣ Upload an image (as file or photo)\n"
         "3️⃣ Select your desired output format\n"
         "4️⃣ Receive your converted image!\n\n"
+        f"📱 Bot Username: {BOT_USERNAME}\n\n"
         "Supported formats: PNG, JPG, WEBP, BMP, GIF, ICO"
     )
     await message.answer(welcome_text)
