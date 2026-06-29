@@ -11,7 +11,7 @@ ENV/
 env.bak/
 venv.bak/
 
-# Environment variables
+# Environment variables (CRITICAL - Never commit .env!)
 .env
 .env.local
 .env.*.local
@@ -39,3 +39,12 @@ temp/
 *.swo
 *~
 .DS_Store
+
+# OS
+Thumbs.db
+
+# Nixpacks (DO NOT USE - Delete these)
+nixpacks.toml
+runtime.txt
+pyproject.toml
+.nixpacks/
