@@ -5,6 +5,7 @@ Convert images between PNG, JPEG, WEBP, BMP, TIFF, ICO, and GIF
 
 import os
 import io
+import sys
 import logging
 from pathlib import Path
 from typing import Dict
@@ -25,24 +26,70 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from PIL import Image
 from dotenv import load_dotenv
 
-# ==================== CONFIGURATION ====================
+# ==================== LOAD ENVIRONMENT ====================
 
+# Load .env file if it exists
 load_dotenv()
 
+# Configure logging
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
+# ==================== GET BOT TOKEN ====================
+
+# Try multiple ways to get the token
+BOT_TOKEN = None
+
+# 1. Try from environment variable
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+
+# 2. If not found, try from Railway's environment
 if not BOT_TOKEN:
-    raise ValueError("TELEGRAM_BOT_TOKEN environment variable not set!")
+    BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+# 3. If still not found, check for .env file
+if not BOT_TOKEN:
+    try:
+        from dotenv import dotenv_values
+        config = dotenv_values(".env")
+        BOT_TOKEN = config.get("TELEGRAM_BOT_TOKEN")
+    except:
+        pass
+
+# 4. If still not found, log error but don't crash immediately
+if not BOT_TOKEN:
+    logger.error("=" * 60)
+    logger.error("❌ TELEGRAM_BOT_TOKEN NOT FOUND!")
+    logger.error("=" * 60)
+    logger.error("Please set the token in one of these ways:")
+    logger.error("1. Railway Variables: Add TELEGRAM_BOT_TOKEN")
+    logger.error("2. .env file: TELEGRAM_BOT_TOKEN=your_token")
+    logger.error("3. Environment variable: export TELEGRAM_BOT_TOKEN=your_token")
+    logger.error("=" * 60)
+    
+    # For Railway, we want to keep trying instead of crashing
+    # This allows the container to stay alive until the variable is set
+    logger.info("🔄 Waiting for TELEGRAM_BOT_TOKEN to be set...")
+    import time
+    while not os.getenv("TELEGRAM_BOT_TOKEN"):
+        time.sleep(5)
+        logger.info("⏳ Still waiting for TELEGRAM_BOT_TOKEN...")
+        # Try reloading .env
+        load_dotenv(override=True)
+        BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+    
+    logger.info("✅ TELEGRAM_BOT_TOKEN found!")
+
+# ==================== BOT CONFIGURATION ====================
 
 BOT_NAME = "Image Morph Bot"
 BOT_USERNAME = "image_morph_bot"
 BOT_VERSION = "1.0.0"
 
+# Initialize bot
 storage = MemoryStorage()
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=storage)
@@ -59,7 +106,7 @@ SUPPORTED_FORMATS: Dict[str, Dict[str, str]] = {
     "gif": {"display": "GIF", "ext": ".gif", "mime": "image/gif"},
 }
 
-MAX_FILE_SIZE = 10 * 1024 * 1024
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 MAX_BATCH_SIZE = 20
 
 # ==================== USER STATES ====================
@@ -74,6 +121,7 @@ user_data: Dict[int, Dict] = {}
 # ==================== HELPERS ====================
 
 def get_format_keyboard() -> InlineKeyboardMarkup:
+    """Create inline keyboard with all supported formats"""
     builder = InlineKeyboardBuilder()
     formats = list(SUPPORTED_FORMATS.keys())
     for i in range(0, len(formats), 3):
@@ -93,6 +141,7 @@ def get_format_keyboard() -> InlineKeyboardMarkup:
 
 
 def convert_image(image_data: bytes, original_filename: str, target_format: str) -> tuple[bytes, str, str]:
+    """Convert image to target format using PIL"""
     try:
         image = Image.open(io.BytesIO(image_data))
         format_info = SUPPORTED_FORMATS[target_format]
@@ -137,6 +186,7 @@ def convert_image(image_data: bytes, original_filename: str, target_format: str)
 
 
 async def send_converted_image(message: Message, image_data: bytes, original_filename: str, target_format: str):
+    """Send converted image back to user"""
     try:
         converted_data, new_filename, mime_type = convert_image(
             image_data, original_filename, target_format
@@ -161,6 +211,7 @@ async def send_converted_image(message: Message, image_data: bytes, original_fil
 
 @dp.message(Command("start"))
 async def start_command(message: Message):
+    """Handle /start command"""
     welcome_text = (
         f"🎨 Welcome to {BOT_NAME}!\n\n"
         "I convert images between different formats.\n"
@@ -182,6 +233,7 @@ async def start_command(message: Message):
 
 @dp.message(Command("help"))
 async def help_command(message: Message):
+    """Handle /help command"""
     help_text = (
         "🤖 How to use Image Morph Bot:\n\n"
         "1️⃣ Send me any image (photo or file)\n"
@@ -208,6 +260,7 @@ async def help_command(message: Message):
 
 @dp.message(Command("convert"))
 async def convert_command(message: Message, state: FSMContext):
+    """Handle /convert command"""
     await state.set_state(ConversionStates.waiting_for_image)
     await message.reply(
         "📤 Please send me an image to convert.\n"
@@ -218,6 +271,7 @@ async def convert_command(message: Message, state: FSMContext):
 
 @dp.message(Command("formats"))
 async def formats_command(message: Message):
+    """Show all supported formats"""
     format_list = "\n".join([
         f"• {info['display']} (.{fmt})"
         for fmt, info in SUPPORTED_FORMATS.items()
@@ -230,6 +284,7 @@ async def formats_command(message: Message):
 
 @dp.message(Command("about"))
 async def about_command(message: Message):
+    """Show bot information"""
     about_text = (
         f"🤖 {BOT_NAME}\n\n"
         f"Version: {BOT_VERSION}\n"
@@ -245,6 +300,7 @@ async def about_command(message: Message):
 
 @dp.message(Command("batch"))
 async def batch_command(message: Message, state: FSMContext):
+    """Handle batch conversion command"""
     await state.set_state(ConversionStates.waiting_for_batch)
     await message.reply(
         f"📚 Please send me the images you want to convert.\n"
@@ -257,6 +313,7 @@ async def batch_command(message: Message, state: FSMContext):
 
 @dp.message(Command("cancel"))
 async def cancel_command(message: Message, state: FSMContext):
+    """Cancel current operation"""
     await state.clear()
     user_id = message.from_user.id
     if user_id in user_data:
@@ -266,6 +323,7 @@ async def cancel_command(message: Message, state: FSMContext):
 
 @dp.message(Command("done"))
 async def done_command(message: Message, state: FSMContext):
+    """Process batch images"""
     user_id = message.from_user.id
     if user_id not in user_data or "batch_images" not in user_data[user_id]:
         await message.reply("❌ No images found in batch.\nSend images first, then /done.")
@@ -290,6 +348,7 @@ async def done_command(message: Message, state: FSMContext):
 
 @dp.message(lambda message: message.photo or message.document)
 async def handle_image(message: Message, state: FSMContext):
+    """Handle incoming images"""
     user_id = message.from_user.id
     try:
         if message.photo:
@@ -353,6 +412,7 @@ async def handle_image(message: Message, state: FSMContext):
 
 @dp.callback_query()
 async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
+    """Handle inline keyboard callbacks"""
     await callback_query.answer()
     user_id = callback_query.from_user.id
     data = callback_query.data
@@ -434,15 +494,32 @@ async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
                 await state.clear()
 
 
+# ==================== HEALTH CHECK (For Railway) ====================
+
+@dp.message(Command("health"))
+async def health_check(message: Message):
+    """Health check endpoint for Railway"""
+    await message.reply("✅ Bot is healthy and running!")
+
+
 # ==================== MAIN ====================
 
 async def main():
+    """Main entry point"""
     try:
+        logger.info("=" * 50)
         logger.info("🚀 Image Morph Bot is starting...")
         logger.info(f"🤖 Username: @{BOT_USERNAME}")
         logger.info(f"📷 Supported formats: {', '.join(SUPPORTED_FORMATS.keys())}")
+        logger.info("=" * 50)
+        
+        # Delete webhook to avoid conflicts
         await bot.delete_webhook(drop_pending_updates=True)
+        
+        # Start polling
+        logger.info("📡 Starting polling...")
         await dp.start_polling(bot)
+        
     except Exception as e:
         logger.error(f"Critical error: {str(e)}")
         raise
@@ -455,6 +532,6 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        logger.info("Bot stopped by user")
+        logger.info("🛑 Bot stopped by user")
     except Exception as e:
-        logger.error(f"Fatal error: {str(e)}")
+        logger.error(f"💥 Fatal error: {str(e)}")
